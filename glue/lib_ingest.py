@@ -9,7 +9,6 @@ Business Insights Assessment · Step 4 · Layer 1 (RDS SQL Server -> S3 raw/)
 """
 
 import json
-
 import boto3
 from botocore.exceptions import ClientError
 from pyspark.sql import functions as F
