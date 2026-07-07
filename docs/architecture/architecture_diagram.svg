@@ -1,0 +1,129 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#37474f"/>
+    </marker>
+    <style>
+      .lbl{fill:#263238;font-size:13px;}
+      .sub{fill:#546e7a;font-size:11px;}
+      .zone{fill:#546e7a;font-size:11px;font-style:italic;}
+      .title{fill:#102a43;font-size:22px;font-weight:bold;}
+      .band{fill:#334e68;font-size:13px;font-weight:bold;}
+      .svc{fill:#0b3d64;font-size:13px;font-weight:bold;}
+      .flow{stroke:#37474f;stroke-width:2;fill:none;marker-end:url(#arrow);}
+    </style>
+  </defs>
+
+  <rect x="0" y="0" width="1280" height="720" fill="#f7f9fb"/>
+  <text x="40" y="46" class="title">Business Insights — AWS Batch Pipeline Architecture</text>
+  <text x="40" y="68" class="sub">Source: SQL Server (RDS) · All PySpark on AWS Glue · Serving: Streamlit · Daily incremental batch</text>
+
+  <!-- ORCHESTRATION BAND (top) -->
+  <rect x="40" y="90" width="1200" height="92" rx="10" fill="#e8f0fe" stroke="#7aa7e9" stroke-width="1.5"/>
+  <text x="58" y="112" class="band">ORCHESTRATION &amp; SCHEDULING</text>
+  <!-- EventBridge -->
+  <rect x="150" y="122" width="150" height="46" rx="6" fill="#fff" stroke="#7aa7e9"/>
+  <text x="225" y="142" text-anchor="middle" class="svc">EventBridge</text>
+  <text x="225" y="159" text-anchor="middle" class="sub">daily cron trigger</text>
+  <!-- Step Functions -->
+  <rect x="470" y="122" width="180" height="46" rx="6" fill="#fff" stroke="#7aa7e9"/>
+  <text x="560" y="142" text-anchor="middle" class="svc">Step Functions</text>
+  <text x="560" y="159" text-anchor="middle" class="sub">state machine · Retry/Catch</text>
+  <!-- Manual -->
+  <rect x="700" y="122" width="180" height="46" rx="6" fill="#fff" stroke="#7aa7e9"/>
+  <text x="790" y="142" text-anchor="middle" class="svc">Manual StartExecution</text>
+  <text x="790" y="159" text-anchor="middle" class="sub">reload path after a fix</text>
+  <!-- SNS -->
+  <rect x="960" y="122" width="150" height="46" rx="6" fill="#fff" stroke="#e07a5f"/>
+  <text x="1035" y="142" text-anchor="middle" class="svc">SNS</text>
+  <text x="1035" y="159" text-anchor="middle" class="sub">failure alert → analyst</text>
+  <path class="flow" d="M300,145 L470,145"/>
+  <path class="flow" d="M880,145 L960,145"/>
+
+  <!-- MAIN DATA FLOW -->
+  <!-- RDS -->
+  <rect x="40" y="300" width="150" height="110" rx="10" fill="#d6e4ff" stroke="#3d6fd1" stroke-width="1.5"/>
+  <text x="115" y="345" text-anchor="middle" class="svc">SQL Server</text>
+  <text x="115" y="365" text-anchor="middle" class="sub">on Amazon RDS</text>
+  <text x="115" y="385" text-anchor="middle" class="zone">(source)</text>
+
+  <!-- Ingestion arrow -->
+  <path class="flow" d="M190,355 L250,355"/>
+  <text x="220" y="330" text-anchor="middle" class="sub">Glue + JDBC</text>
+  <text x="220" y="345" text-anchor="middle" class="sub">SSL · watermark</text>
+
+  <!-- S3 LAKE CONTAINER -->
+  <rect x="255" y="230" width="700" height="250" rx="12" fill="#eef6ec" stroke="#5a9d54" stroke-width="1.5"/>
+  <text x="273" y="255" class="band">S3 DATA LAKE — one bucket, four prefixes (medallion)</text>
+
+  <!-- raw -->
+  <rect x="275" y="300" width="150" height="110" rx="10" fill="#cd7f32" opacity="0.18" stroke="#a86a2a" stroke-width="1.5"/>
+  <text x="350" y="330" text-anchor="middle" class="svc">raw/  (bronze)</text>
+  <text x="350" y="352" text-anchor="middle" class="sub">verbatim pull</text>
+  <text x="350" y="369" text-anchor="middle" class="sub">Parquet</text>
+  <text x="350" y="386" text-anchor="middle" class="zone">part: load_date</text>
+
+  <!-- prod -->
+  <rect x="475" y="300" width="150" height="110" rx="10" fill="#9aa5b1" opacity="0.30" stroke="#7b8794" stroke-width="1.5"/>
+  <text x="550" y="330" text-anchor="middle" class="svc">prod/  (silver)</text>
+  <text x="550" y="352" text-anchor="middle" class="sub">typed + cleaned</text>
+  <text x="550" y="369" text-anchor="middle" class="sub">dynamic overwrite</text>
+  <text x="550" y="386" text-anchor="middle" class="zone">part: ORDER_DATE</text>
+
+  <!-- reporting -->
+  <rect x="675" y="300" width="150" height="110" rx="10" fill="#f2c94c" opacity="0.35" stroke="#caa53d" stroke-width="1.5"/>
+  <text x="750" y="330" text-anchor="middle" class="svc">reporting/ (gold)</text>
+  <text x="750" y="352" text-anchor="middle" class="sub">CLV · RFM · agg</text>
+  <text x="750" y="369" text-anchor="middle" class="sub">small Parquet</text>
+  <text x="750" y="386" text-anchor="middle" class="zone">no partition</text>
+
+  <!-- rejects -->
+  <rect x="835" y="300" width="105" height="110" rx="10" fill="#e07a5f" opacity="0.20" stroke="#c25b40" stroke-width="1.5"/>
+  <text x="887" y="330" text-anchor="middle" class="svc">rejects/</text>
+  <text x="887" y="352" text-anchor="middle" class="sub">quarantined</text>
+  <text x="887" y="369" text-anchor="middle" class="sub">bad records</text>
+
+  <!-- flows inside lake -->
+  <path class="flow" d="M250,355 L275,355"/>
+  <path class="flow" d="M425,355 L475,355"/>
+  <text x="450" y="345" text-anchor="middle" class="sub">Glue PySpark</text>
+  <path class="flow" d="M625,355 L675,355"/>
+  <text x="650" y="345" text-anchor="middle" class="sub">Glue PySpark</text>
+  <!-- reject drop -->
+  <path class="flow" d="M550,410 C560,440 820,440 855,412" stroke-dasharray="4 3"/>
+
+  <!-- Serving -->
+  <path class="flow" d="M955,355 L1030,355"/>
+  <text x="995" y="345" text-anchor="middle" class="sub">direct</text>
+  <text x="995" y="378" text-anchor="middle" class="sub">Parquet read</text>
+  <rect x="1035" y="300" width="205" height="110" rx="10" fill="#d6e4ff" stroke="#3d6fd1" stroke-width="1.5"/>
+  <text x="1137" y="345" text-anchor="middle" class="svc">Streamlit</text>
+  <text x="1137" y="365" text-anchor="middle" class="sub">dashboard (6 views)</text>
+  <text x="1137" y="385" text-anchor="middle" class="zone">(serving)</text>
+
+  <!-- Orchestration to flow (dashed control lines) -->
+  <path d="M560,168 L560,300" stroke="#7aa7e9" stroke-width="1.5" stroke-dasharray="5 4" fill="none"/>
+  <text x="575" y="215" class="sub">controls Glue jobs</text>
+
+  <!-- SECURITY BAND (bottom) -->
+  <rect x="40" y="540" width="1200" height="140" rx="10" fill="#fdeee9" stroke="#e0a08c" stroke-width="1.5"/>
+  <text x="58" y="564" class="band">SECURITY (cross-cutting)</text>
+  <rect x="70" y="580" width="260" height="80" rx="6" fill="#fff" stroke="#e0a08c"/>
+  <text x="200" y="608" text-anchor="middle" class="svc">Encryption at rest</text>
+  <text x="200" y="630" text-anchor="middle" class="sub">SSE-KMS (S3) · RDS + Glue</text>
+  <text x="200" y="647" text-anchor="middle" class="sub">temp/logs KMS-encrypted</text>
+  <rect x="360" y="580" width="260" height="80" rx="6" fill="#fff" stroke="#e0a08c"/>
+  <text x="490" y="608" text-anchor="middle" class="svc">Encryption in transit</text>
+  <text x="490" y="630" text-anchor="middle" class="sub">JDBC SSL (RDS→Glue)</text>
+  <text x="490" y="647" text-anchor="middle" class="sub">TLS/HTTPS enforced (S3)</text>
+  <rect x="650" y="580" width="260" height="80" rx="6" fill="#fff" stroke="#e0a08c"/>
+  <text x="780" y="608" text-anchor="middle" class="svc">Secrets Manager</text>
+  <text x="780" y="630" text-anchor="middle" class="sub">DB creds fetched at runtime</text>
+  <text x="780" y="647" text-anchor="middle" class="sub">auto-rotation</text>
+  <rect x="940" y="580" width="260" height="80" rx="6" fill="#fff" stroke="#e0a08c"/>
+  <text x="1070" y="608" text-anchor="middle" class="svc">IAM least-privilege</text>
+  <text x="1070" y="630" text-anchor="middle" class="sub">per-component roles</text>
+  <text x="1070" y="647" text-anchor="middle" class="sub">minimum permissions</text>
+
+  <text x="40" y="708" class="sub">Reload story: run fails → SNS alert → fix → manual StartExecution for the date → Glue reads preserved raw/ → dynamic-overwrites prod/ partition → recomputes reporting/. Idempotent, no re-hit to RDS.</text>
+</svg>

@@ -1,0 +1,84 @@
+<mxfile host="app.diagrams.net" version="24.0.0">
+  <diagram name="BI Pipeline Architecture" id="bi-arch">
+    <mxGraphModel dx="1400" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1280" pageHeight="720" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+
+        <mxCell id="title" value="Business Insights — AWS Batch Pipeline Architecture" style="text;html=1;fontSize=20;fontStyle=1;fontColor=#102A43;align=left;" vertex="1" parent="1">
+          <mxGeometry x="40" y="24" width="700" height="30" as="geometry"/>
+        </mxCell>
+
+        <!-- Orchestration band -->
+        <mxCell id="orchBand" value="ORCHESTRATION &amp; SCHEDULING" style="rounded=1;fillColor=#E8F0FE;strokeColor=#7AA7E9;verticalAlign=top;fontStyle=1;fontColor=#334E68;align=left;spacingLeft=12;spacingTop=8;" vertex="1" parent="1">
+          <mxGeometry x="40" y="90" width="1200" height="92" as="geometry"/>
+        </mxCell>
+        <mxCell id="eventbridge" value="EventBridge&#10;(daily cron trigger)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#7AA7E9;fontColor=#0B3D64;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="150" y="122" width="150" height="46" as="geometry"/>
+        </mxCell>
+        <mxCell id="stepfn" value="Step Functions&#10;state machine · Retry/Catch" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#7AA7E9;fontColor=#0B3D64;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="470" y="122" width="180" height="46" as="geometry"/>
+        </mxCell>
+        <mxCell id="manual" value="Manual StartExecution&#10;(reload path after fix)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#7AA7E9;fontColor=#0B3D64;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="700" y="122" width="180" height="46" as="geometry"/>
+        </mxCell>
+        <mxCell id="sns" value="SNS&#10;failure alert → analyst" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#E07A5F;fontColor=#0B3D64;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="960" y="122" width="150" height="46" as="geometry"/>
+        </mxCell>
+        <mxCell id="e1" style="edgeStyle=orthogonalEdgeStyle;endArrow=classic;html=1;strokeColor=#37474F;" edge="1" parent="1" source="eventbridge" target="stepfn"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e2" style="edgeStyle=orthogonalEdgeStyle;endArrow=classic;html=1;strokeColor=#37474F;" edge="1" parent="1" source="manual" target="sns"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+        <!-- Source -->
+        <mxCell id="rds" value="SQL Server&#10;on Amazon RDS&#10;(source)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#D6E4FF;strokeColor=#3D6FD1;fontColor=#0B3D64;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="300" width="150" height="110" as="geometry"/>
+        </mxCell>
+
+        <!-- S3 lake container -->
+        <mxCell id="lake" value="S3 DATA LAKE — one bucket, four prefixes (medallion)" style="rounded=1;fillColor=#EEF6EC;strokeColor=#5A9D54;verticalAlign=top;fontStyle=1;fontColor=#334E68;align=left;spacingLeft=12;spacingTop=8;" vertex="1" parent="1">
+          <mxGeometry x="255" y="230" width="700" height="250" as="geometry"/>
+        </mxCell>
+        <mxCell id="raw" value="raw/ (bronze)&#10;verbatim · Parquet&#10;part: load_date" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F0DCC6;strokeColor=#A86A2A;fontColor=#0B3D64;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="275" y="300" width="150" height="110" as="geometry"/>
+        </mxCell>
+        <mxCell id="prod" value="prod/ (silver)&#10;typed + cleaned&#10;dynamic overwrite&#10;part: ORDER_DATE" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#DCE1E8;strokeColor=#7B8794;fontColor=#0B3D64;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="475" y="300" width="150" height="110" as="geometry"/>
+        </mxCell>
+        <mxCell id="reporting" value="reporting/ (gold)&#10;CLV · RFM · agg&#10;small Parquet&#10;no partition" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FBECBF;strokeColor=#CAA53D;fontColor=#0B3D64;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="675" y="300" width="150" height="110" as="geometry"/>
+        </mxCell>
+        <mxCell id="rejects" value="rejects/&#10;quarantined&#10;bad records" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F5D5CB;strokeColor=#C25B40;fontColor=#0B3D64;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="835" y="300" width="105" height="110" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="fIngest" value="Glue + JDBC&#10;SSL · watermark" style="edgeStyle=orthogonalEdgeStyle;endArrow=classic;html=1;strokeColor=#37474F;fontColor=#546E7A;fontSize=11;" edge="1" parent="1" source="rds" target="raw"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="fT1" value="Glue PySpark" style="edgeStyle=orthogonalEdgeStyle;endArrow=classic;html=1;strokeColor=#37474F;fontColor=#546E7A;fontSize=11;" edge="1" parent="1" source="raw" target="prod"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="fT2" value="Glue PySpark" style="edgeStyle=orthogonalEdgeStyle;endArrow=classic;html=1;strokeColor=#37474F;fontColor=#546E7A;fontSize=11;" edge="1" parent="1" source="prod" target="reporting"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="fRej" value="bad rows" style="edgeStyle=orthogonalEdgeStyle;endArrow=classic;html=1;strokeColor=#C25B40;dashed=1;fontColor=#546E7A;fontSize=11;" edge="1" parent="1" source="prod" target="rejects"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+        <!-- Serving -->
+        <mxCell id="streamlit" value="Streamlit&#10;dashboard (6 views)&#10;(serving)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#D6E4FF;strokeColor=#3D6FD1;fontColor=#0B3D64;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="1035" y="300" width="205" height="110" as="geometry"/>
+        </mxCell>
+        <mxCell id="fServe" value="direct Parquet read" style="edgeStyle=orthogonalEdgeStyle;endArrow=classic;html=1;strokeColor=#37474F;fontColor=#546E7A;fontSize=11;" edge="1" parent="1" source="reporting" target="streamlit"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="fControl" value="controls Glue jobs" style="endArrow=none;html=1;strokeColor=#7AA7E9;dashed=1;fontColor=#546E7A;fontSize=11;" edge="1" parent="1" source="stepfn" target="prod"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+        <!-- Security band -->
+        <mxCell id="secBand" value="SECURITY (cross-cutting)" style="rounded=1;fillColor=#FDEEE9;strokeColor=#E0A08C;verticalAlign=top;fontStyle=1;fontColor=#334E68;align=left;spacingLeft=12;spacingTop=8;" vertex="1" parent="1">
+          <mxGeometry x="40" y="540" width="1200" height="140" as="geometry"/>
+        </mxCell>
+        <mxCell id="secRest" value="Encryption at rest&#10;SSE-KMS (S3) · RDS + Glue&#10;temp/logs KMS-encrypted" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#E0A08C;fontColor=#0B3D64;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="70" y="580" width="260" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="secTransit" value="Encryption in transit&#10;JDBC SSL (RDS→Glue)&#10;TLS/HTTPS enforced (S3)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#E0A08C;fontColor=#0B3D64;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="360" y="580" width="260" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="secSecrets" value="Secrets Manager&#10;DB creds fetched at runtime&#10;auto-rotation" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#E0A08C;fontColor=#0B3D64;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="650" y="580" width="260" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="secIam" value="IAM least-privilege&#10;per-component roles&#10;minimum permissions" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#E0A08C;fontColor=#0B3D64;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="940" y="580" width="260" height="80" as="geometry"/>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

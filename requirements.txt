@@ -1,0 +1,22 @@
+# Local development & testing only.
+# AWS Glue provides its own managed PySpark runtime — these are NOT installed on
+# Glue. Pin the Spark version to match your Glue version when testing locally
+# (Glue 4.0 -> Spark 3.3).
+
+# Core
+pyspark==3.3.4
+boto3>=1.34
+botocore>=1.34
+
+# Source load helpers (setup notebooks)
+pandas>=2.0
+SQLAlchemy>=2.0
+pymssql>=2.2
+
+# Serving (Step 6)
+awswrangler>=3.5
+pyarrow>=14.0
+streamlit>=1.30
+
+# Dev / test
+pytest>=8.0
