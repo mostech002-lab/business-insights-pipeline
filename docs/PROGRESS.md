@@ -154,12 +154,33 @@ Both TODOs done + `date_dim` folded in:
 
 **Gold entrypoint — `glue/transform_reporting_job.py` COMPLETE:** args `JOB_NAME/prod_base_path/reporting_base_path/reference_date` (NO load_date — reporting fully recomputed off silver each run). `read_from_prod` = plain `spark.read.parquet` (no schema/filter; parquet self-describing, read whole table). Wiring: read `order_items_enriched` → CLV chain (daily→rank→tag) + RFM → `write_to_prod(..., partition_cols=None)` for `clv` and `rfm` to `reporting/`. Reuses `write_to_prod` from lib_transform.
 
-### 👉 NEXT SESSION STARTS HERE (Step 4 wrap → Step 5)
-0. **Commit + push this session** (see repo hygiene note) — `lib_gold.py`, `transform_reporting_job.py`, `tests/test_gold.py`, PROGRESS update all uncommitted. Plus the earlier uncommitted Layer-2 files if not yet pushed.
-1. **Run `pytest tests/ -v` in `mlstack`** to confirm all transform + gold tests pass on real Spark (only py_compile done in sandbox).
-2. **Step 5 — Metrics:** CLV (done as tables), RFM (done); still need churn, sales trends, loyalty, locations, pricing/discounts. Decide which are gold tables vs. Streamlit-side aggregations.
-3. **Step 6 — Streamlit** dashboard (6 views) reading `reporting/` Parquet direct.
+## ✅ Step 5 — Metrics — MOSTLY DONE
+
+**Metric-home decision (interview point):** make it a gold table only if the agg is heavy over the full fact AND reused across views; trivial slices of already-small tables stay Streamlit-side.
+
+| Metric | Home | Status |
+|---|---|---|
+| CLV | gold `clv` | ✅ |
+| RFM | gold `rfm` | ✅ |
+| Sales trends | gold `daily_sales` | ✅ |
+| Locations | gold `location_perf` | ✅ |
+| Churn | flag on `rfm` (`IS_CHURNED`) | ✅ |
+| Loyalty | Streamlit-side (Step 6) | ➖ deferred |
+| Pricing/discounts | blocked — SME open Q | ⛔ |
+
+New `lib_gold.py` functions (syntax-clean):
+- `flag_churn(rfm_df, churn_threshold_days=90)` — `IS_CHURNED = RECENCY > threshold`; rides on rfm, no extra fact pass. 90d = stated assumption.
+- `compute_daily_sales(enriched_df)` — grain ORDER_DATE: `TOTAL_REVENUE`/`NUM_ORDERS`(distinct)/`NUM_LINE_ITEMS`/`AOV`. **Guests KEPT** (real revenue — only customer-level metrics drop null USER_ID).
+- `compute_location_performance(enriched_df)` — grain RESTAURANT_ID: `TOTAL_REVENUE`/`NUM_ORDERS`/`AOV`. Guests kept.
+
+`transform_reporting_job.py` now writes 4 gold tables: `clv`, `rfm` (with churn flag), `daily_sales`, `location_perf`. `tests/test_gold.py` = 7 tests (added flag_churn, daily_sales, location_perf). All py_compile-clean; run `pytest tests/ -v` in `mlstack` to confirm on real Spark.
+
+### 👉 NEXT SESSION STARTS HERE (Step 6)
+1. **Run `pytest tests/ -v` in `mlstack`** (only py_compile done in sandbox this session).
+2. **Pricing/discounts** — still blocked on SME: `OPTION_PRICE` has 0 negatives, how are discounts encoded? Get an answer or document the assumption.
+3. **Step 6 — Streamlit** dashboard (6 views) reading `reporting/` Parquet direct into pandas. Loyalty = live groupby on `IS_LOYALTY` here. Views ≈ CLV segments, RFM, sales trend, locations, churn, loyalty.
 4. **Step 7 — CI/CD** (GitHub Actions running pytest) + docs "WHY per stack" + demo video.
+5. **Repo hygiene:** revoke the throwaway PAT (still in `.git/config` remote URL) + `git remote set-url` to clean HTTPS.
 
 **Working style reminder:** guide, don't hand answers; walk code step-by-step; give the answer only after 3 wrong tries; track with the task list. Reconnect the folder at the start of each chat (`Business Insights Assessment` → `business-insights-pipeline/`).
 

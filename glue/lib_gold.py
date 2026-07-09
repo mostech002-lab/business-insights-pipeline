@@ -127,3 +127,69 @@ def compute_rfm(enriched_df, reference_date):
         .withColumn("RECENCY", F.datediff(F.lit(reference_date), "MAX_ORDER_DATE"))
         .drop("MAX_ORDER_DATE")
     )
+
+
+def flag_churn(rfm_df, churn_threshold_days=90):
+    """
+    Add IS_CHURNED to the RFM table — a customer is churned if their last order
+    was more than churn_threshold_days ago (RECENCY > threshold).
+
+    Rides on rfm (RECENCY already computed) — no extra pass over the fact.
+    Threshold is a business choice; 90 days is the default assumption to state.
+    """
+    return rfm_df.withColumn(
+        "IS_CHURNED", F.col("RECENCY") > F.lit(churn_threshold_days)
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Sales trends — revenue time series (grain: ORDER_DATE)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def compute_daily_sales(enriched_df):
+    """
+    Grain: ORDER_DATE. Revenue trend over time for the whole business.
+
+    NOTE: guest checkouts (null USER_ID) are KEPT here — they're real revenue.
+    Only customer-level metrics (CLV/RFM) drop guests; revenue totals must not.
+
+    Columns: ORDER_DATE / TOTAL_REVENUE / NUM_ORDERS / NUM_LINE_ITEMS / AOV
+    (AOV = average order value = revenue / distinct orders).
+    """
+    daily = (
+        enriched_df
+        .groupBy("ORDER_DATE")
+        .agg(
+            F.sum("LINE_REVENUE").alias("TOTAL_REVENUE"),
+            F.countDistinct("ORDER_ID").alias("NUM_ORDERS"),
+            F.count(F.lit(1)).alias("NUM_LINE_ITEMS"),
+        )
+    )
+    return daily.withColumn(
+        "AOV", F.round(F.col("TOTAL_REVENUE") / F.col("NUM_ORDERS"), 2)
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Location performance — revenue by restaurant (grain: RESTAURANT_ID)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def compute_location_performance(enriched_df):
+    """
+    Grain: RESTAURANT_ID. Which locations drive revenue.
+
+    Guest checkouts KEPT (revenue metric, not customer-level).
+
+    Columns: RESTAURANT_ID / TOTAL_REVENUE / NUM_ORDERS / AOV.
+    """
+    loc = (
+        enriched_df
+        .groupBy("RESTAURANT_ID")
+        .agg(
+            F.sum("LINE_REVENUE").alias("TOTAL_REVENUE"),
+            F.countDistinct("ORDER_ID").alias("NUM_ORDERS"),
+        )
+    )
+    return loc.withColumn(
+        "AOV", F.round(F.col("TOTAL_REVENUE") / F.col("NUM_ORDERS"), 2)
+    )

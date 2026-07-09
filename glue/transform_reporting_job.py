@@ -36,6 +36,9 @@ from lib_gold import (
     rank_customers,
     assign_clv_tags,
     compute_rfm,
+    flag_churn,
+    compute_daily_sales,
+    compute_location_performance,
 )
 from lib_transform import write_to_prod
 
@@ -82,12 +85,19 @@ def main():
     ranked_cust_df = rank_customers(daily_spend_ltv)
     clv = assign_clv_tags(daily_spend_ltv, ranked_cust_df)
 
-    # 3. RFM: one row per customer as of reference_date
+    # 3. RFM (+ churn flag riding on recency): one row per customer
     rfm = compute_rfm(enriched_df, reference_date)
+    rfm = flag_churn(rfm)
 
-    # 4. land both gold tables, unpartitioned (small pre-aggregated outputs)
+    # 4. revenue trend + location performance (guests kept — real revenue)
+    daily_sales = compute_daily_sales(enriched_df)
+    location_perf = compute_location_performance(enriched_df)
+
+    # 5. land all gold tables, unpartitioned (small pre-aggregated outputs)
     write_to_prod(clv, reporting_base, "clv", partition_cols=None)
     write_to_prod(rfm, reporting_base, "rfm", partition_cols=None)
+    write_to_prod(daily_sales, reporting_base, "daily_sales", partition_cols=None)
+    write_to_prod(location_perf, reporting_base, "location_perf", partition_cols=None)
 
     job.commit()
 

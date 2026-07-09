@@ -146,3 +146,83 @@ def test_compute_rfm(spark):
     assert rows["U1"]["FREQUENCY"] == 2          # distinct ORDER_ID
     assert rows["U1"]["MONETARY"] == 180.0       # 100 + 50 + 30
     assert rows["U1"]["RECENCY"] == 6            # 2026-01-31 - 2026-01-25
+
+
+def test_flag_churn(spark):
+    # RECENCY 10 -> active (<=90); 120 -> churned (>90)
+    rfm = spark.createDataFrame(
+        [
+            ("U1", 10, 2, 180.0),
+            ("U2", 120, 1, 50.0),
+        ],
+        ["USER_ID", "RECENCY", "FREQUENCY", "MONETARY"],
+    )
+
+    out = T.flag_churn(rfm, churn_threshold_days=90)
+
+    churned = {r["USER_ID"]: r["IS_CHURNED"] for r in out.collect()}
+    assert churned["U1"] is False
+    assert churned["U2"] is True
+
+
+def test_compute_daily_sales(spark):
+    # 2026-01-22: orders O1 (2 lines: 100+50) + O2 (30) -> rev 180, orders 2,
+    #             line items 3, AOV 90. Guest checkout (null USER_ID) is KEPT.
+    df = spark.createDataFrame(
+        [
+            ("U1", "O1", datetime.date(2026, 1, 22), 100),
+            ("U1", "O1", datetime.date(2026, 1, 22),  50),
+            (None, "O2", datetime.date(2026, 1, 22),  30),  # guest -> still counts
+            ("U2", "O3", datetime.date(2026, 1, 23),  40),
+        ],
+        ["USER_ID", "ORDER_ID", "ORDER_DATE", "LINE_REVENUE"],
+    )
+
+    out = T.compute_daily_sales(df)
+
+    rows = {
+        r["ORDER_DATE"]: {
+            "TOTAL_REVENUE": float(r["TOTAL_REVENUE"]),
+            "NUM_ORDERS": r["NUM_ORDERS"],
+            "NUM_LINE_ITEMS": r["NUM_LINE_ITEMS"],
+            "AOV": float(r["AOV"]),
+        }
+        for r in out.collect()
+    }
+
+    d22 = rows[datetime.date(2026, 1, 22)]
+    assert d22["TOTAL_REVENUE"] == 180.0     # guest revenue included
+    assert d22["NUM_ORDERS"] == 2
+    assert d22["NUM_LINE_ITEMS"] == 3
+    assert d22["AOV"] == 90.0                # 180 / 2
+
+
+def test_compute_location_performance(spark):
+    # R1: O1 (100+50) + O2 (30) -> rev 180, orders 2, AOV 90
+    # R2: O3 (40)               -> rev 40,  orders 1, AOV 40
+    df = spark.createDataFrame(
+        [
+            ("R1", "O1", 100),
+            ("R1", "O1",  50),
+            ("R1", "O2",  30),
+            ("R2", "O3",  40),
+        ],
+        ["RESTAURANT_ID", "ORDER_ID", "LINE_REVENUE"],
+    )
+
+    out = T.compute_location_performance(df)
+
+    rows = {
+        r["RESTAURANT_ID"]: {
+            "TOTAL_REVENUE": float(r["TOTAL_REVENUE"]),
+            "NUM_ORDERS": r["NUM_ORDERS"],
+            "AOV": float(r["AOV"]),
+        }
+        for r in out.collect()
+    }
+
+    assert rows["R1"]["TOTAL_REVENUE"] == 180.0
+    assert rows["R1"]["NUM_ORDERS"] == 2
+    assert rows["R1"]["AOV"] == 90.0
+    assert rows["R2"]["TOTAL_REVENUE"] == 40.0
+    assert rows["R2"]["AOV"] == 40.0
