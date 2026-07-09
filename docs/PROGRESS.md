@@ -125,21 +125,45 @@ Clean git repo lives in subfolder `business-insights-pipeline/` (structure, READ
 - `derive_order_date(df)` — `ORDER_DATE = to_date(CREATION_TIME_UTC)` + `year`/`month`/`day` int columns.
 - `write_to_prod(df, prod_path, table_name)` — dynamic partition overwrite, **partitioned by `year`/`month`/`day`** (switched from flat `ORDER_DATE` → nested, coarse→fine, for multi-year scale + easy retention). Returns target path.
 
-### ⬜ Layer 2 entrypoint — `glue/transform_prod_job.py` — SCAFFOLDED, NOT WIRED
-Boilerplate done (args, Glue/Spark setup, imports, `OPTIONS_JOIN_KEYS`, `ITEMS_REQUIRED_COLS`). **TWO TODOs left for the user to write:**
-1. `read_raw(spark, schema, raw_base, table_name, load_date)` — `spark.read.schema(schema).parquet(f"{raw_base}/{table_name}")` filtered to `load_date` (load_date returns via partition discovery). Return filtered df.
-2. The 8-step pipeline in `main()`: read both raw tables w/ schemas → quarantine corrupt → quarantine orphans → pre-aggregate → compute revenue → derive date → `write_to_prod`. `.cache()` `valid_items` (used twice).
-- **Deliberately deferred:** `date_dim` silver pass (needs a `date_key` string→DateType parse we haven't built) — add as a small separate pass after core flow works.
+### ✅ Layer 2 entrypoint — `glue/transform_prod_job.py` — WIRED & COMPLETE
+Both TODOs done + `date_dim` folded in:
+1. `read_raw(spark, schema, raw_base, table_name, load_date)` — `spark.read.schema(schema).parquet(f"{raw_base}/{table_name}").filter(F.col("load_date")==load_date)`. Table-root path so partition discovery re-attaches `load_date` even though it's not in the explicit schema. Added `from pyspark.sql import functions as F` import.
+2. 8-step `main()` pipeline wired: read items+options → quarantine corrupt → **`valid_items = valid_items.cache()`** (consumed 3× downstream) → quarantine orphans → preaggregate → compute revenue → derive date → `write_to_prod` as `order_items_enriched`.
+3. **`date_dim` silver pass (step 9)** folded into `main()`: `read_raw(date_dim_schema)` → `parse_date_dim` → **fail-fast guard** (`.count()` of null `DATE` → raise) → `write_to_prod(..., partition_cols=None)`.
+- New job arg added: `qurantine_base_path` (orphan options write here; corrupt items → `rejects_base_path`). **Orchestration/Step Functions must now pass this 6th param.** (`qurantine` misspelled consistently in both `main()` and `lib_transform` — cosmetic, fix later.)
 
-### 👉 NEXT SESSION STARTS HERE (Step 4 continues)
-1. Finish `transform_prod_job.py` (the 2 TODOs above) — guide the user, don't hand code.
-2. Add the `date_dim` silver parse pass (parse inconsistent `date_key` → `DateType`; write to `prod/date_dim`).
-3. Add pytest unit tests for the new pure logic (mirror the 5 existing `build_ingest_query` tests).
-4. **Verify idempotency** (Task): re-run same date twice → identical output across all layers.
-5. Then **Layer 3 gold** (`prod/` → `reporting/`): CLV table (USER_ID/SNAPSHOT_DATE/DAILY_SPEND/RUNNING_LTV/CLV_TAG, Decimal money, full-base as-of ranking) + RFM as separate table.
-6. Then Step 5 metrics, Step 6 Streamlit, Step 7 CI/CD + demo.
+### ✅ `lib_transform.py` additions
+- `parse_date_dim(df)` — inconsistent `date_key` string → `DATE` (DateType) via `F.coalesce(to_date(dd-MM-yyyy), to_date(M/d/yy))` (two formats found in Step 1). Unparseable → null → caught by job guard.
+- `write_to_prod(df, prod_path, table_name, partition_cols=("year","month","day"))` — now takes optional `partition_cols`; pass `None` for small unpartitioned dims (date_dim full-refresh).
 
-**Repo hygiene note:** commits `1f0c43b` (Layer 1) + `ea14168` (Layer 2 logic + entrypoint scaffold) are on GitHub `main`. `docs/PROGRESS.md` update (this) not yet committed. GitHub auth was via HTTPS + PAT for account `mostech002-lab` (there was a two-account mixup with `mossubscriptions002-ux` cached in macOS Keychain — resolved; a throwaway PAT was used and should be revoked).
+### ✅ Tests — `tests/test_transform.py` (real Spark, all passing)
+- `conftest.py` reworked: **conditional** pyspark stub (stub only if real pyspark absent; else use it — e.g. user's `mlstack` venv), added **session-scoped `spark` fixture**. boto3 always stubbed.
+- 4 passing tests: `compute_line_revenue` no-options coalesce → non-null revenue; `preaggregate_options` sum/count; `parse_date_dim` both date formats → `datetime.date`; **idempotency** (`write_to_prod` written twice + a 2nd partition → 2 rows not 3, dynamic per-partition overwrite proven).
+- **Run tests in `mlstack` venv:** `pytest tests/test_transform.py -v`. (This sandbox has no pyspark — do NOT `pip install` it; user's venv `mlstack` has it.)
+
+### ✅ Layer 3 — Gold (`prod/` → `reporting/`) — COMPLETE
+`glue/lib_gold.py` — 4 functions, all logic done & syntax-clean:
+- `compute_daily_spend_and_ltv(enriched_df)` — drop null `USER_ID` → groupBy `(USER_ID, SNAPSHOT_DATE)` sum `LINE_REVENUE` as `DAILY_SPEND` → cumulative `RUNNING_LTV` via `Window.partitionBy("USER_ID").orderBy("SNAPSHOT_DATE")` (default frame = running total).
+- `rank_customers(clv_df)` — `LATEST_LTV = max(RUNNING_LTV)` per `USER_ID` (monotonic → max = latest); `QUINTILE = ntile(5)` over **no-partition** `Window.orderBy(LATEST_LTV.asc())` (ranks whole base; quintile 5 = top spenders).
+- `assign_clv_tags(daily_df, ranked_df)` — QUINTILE→CLV_TAG (5 High / 1 Low / else Med) on `ranked_df`, then **LEFT** join onto daily on `USER_ID`, drop `QUINTILE`+`LATEST_LTV`. Final: `USER_ID/SNAPSHOT_DATE/DAILY_SPEND/RUNNING_LTV/CLV_TAG`. Tag denormalized onto every daily row → flat single-scan serving table (no query-time join). Tag = as-of latest run; whole history carries current tag (intentional; migration across runs).
+- `compute_rfm(enriched_df, reference_date)` — grain USER_ID: one agg → `MAX_ORDER_DATE`+`FREQUENCY`(countDistinct ORDER_ID)+`MONETARY`(sum LINE_REVENUE); then `RECENCY = datediff(lit(reference_date), MAX_ORDER_DATE)`; drop scratch col. `reference_date` = 'yyyy-MM-dd' str or date.
+
+**CLV_TAG design (kept for interview):** each RUN = ONE full-base ranking as-of reporting date; migration Low→Med→High across runs, NOT per-historical-date. Tag by population percentile (top20/mid60/bottom20) via ntile(5) — NOT share-of-total.
+
+**Tests — `tests/test_gold.py` (real Spark, 4 tests, syntax-clean):** daily/LTV (null drop + running sum 220→270→395), rank_customers (ntile buckets), assign_clv_tags (5/1/mid → High/Low/Med, tag per daily row), compute_rfm (freq=2, monetary=180, recency=6). **Run in `mlstack`:** `pytest tests/test_gold.py -v`. (Sandbox has no pyspark — py_compile only here.)
+
+**Gold entrypoint — `glue/transform_reporting_job.py` COMPLETE:** args `JOB_NAME/prod_base_path/reporting_base_path/reference_date` (NO load_date — reporting fully recomputed off silver each run). `read_from_prod` = plain `spark.read.parquet` (no schema/filter; parquet self-describing, read whole table). Wiring: read `order_items_enriched` → CLV chain (daily→rank→tag) + RFM → `write_to_prod(..., partition_cols=None)` for `clv` and `rfm` to `reporting/`. Reuses `write_to_prod` from lib_transform.
+
+### 👉 NEXT SESSION STARTS HERE (Step 4 wrap → Step 5)
+0. **Commit + push this session** (see repo hygiene note) — `lib_gold.py`, `transform_reporting_job.py`, `tests/test_gold.py`, PROGRESS update all uncommitted. Plus the earlier uncommitted Layer-2 files if not yet pushed.
+1. **Run `pytest tests/ -v` in `mlstack`** to confirm all transform + gold tests pass on real Spark (only py_compile done in sandbox).
+2. **Step 5 — Metrics:** CLV (done as tables), RFM (done); still need churn, sales trends, loyalty, locations, pricing/discounts. Decide which are gold tables vs. Streamlit-side aggregations.
+3. **Step 6 — Streamlit** dashboard (6 views) reading `reporting/` Parquet direct.
+4. **Step 7 — CI/CD** (GitHub Actions running pytest) + docs "WHY per stack" + demo video.
+
+**Working style reminder:** guide, don't hand answers; walk code step-by-step; give the answer only after 3 wrong tries; track with the task list. Reconnect the folder at the start of each chat (`Business Insights Assessment` → `business-insights-pipeline/`).
+
+**Repo hygiene note:** commits `1f0c43b` (Layer 1) + `ea14168` (Layer 2 logic + scaffold) on GitHub `main`. **Uncommitted this session:** `transform_prod_job.py` (wired), `lib_transform.py` (parse_date_dim + write_to_prod arg), `lib_gold.py` (new), `tests/conftest.py` + `tests/test_transform.py`, this PROGRESS update, plus the earlier `f1ac03f` if not yet pushed. **Commit + push before/after next session.** GitHub auth = HTTPS + PAT for `mostech002-lab`; throwaway PAT should be revoked if not already.
 
 ## Open questions to raise with SME (from Steps 1–2)
 1. **Discounts:** spec says detect via `OPTION_PRICE < 0` but data has **0 negatives** — how are discounts encoded (or are there none)? Blocks discount metric.

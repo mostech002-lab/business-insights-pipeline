@@ -199,15 +199,37 @@ def derive_order_date(df):
     return df
 
 
-def write_to_prod(df, prod_path, table_name):
+def parse_date_dim(df):
+    """
+    Standardize the inconsistent `date_key` string into a real DateType `DATE`.
+
+    Step 1 found two formats in this column across source copies
+    (`dd-MM-yyyy` and `M/d/yy`), so we try each in order and take the first
+    that parses. `date_dim` is a small controlled calendar dimension, so
+    unparseable rows are not expected — surface them loudly rather than
+    silently drop a day (see the fail-fast guard in the job).
+    """
+    df = df.withColumn(
+        "DATE",
+        F.coalesce(
+            F.to_date(F.col("date_key"), "dd-MM-yyyy"),
+            F.to_date(F.col("date_key"), "M/d/yy"),
+        ),
+    )
+    return df
+
+
+def write_to_prod(df, prod_path, table_name, partition_cols=("year", "month", "day")):
+    """
+    Write a silver table to prod/. Partitioned by year/month/day by default
+    (dynamic overwrite -> only touched partitions are replaced, so re-runs are
+    idempotent). Pass partition_cols=None for small unpartitioned dims like
+    date_dim, where mode("overwrite") does a clean full-refresh replace.
+    """
     df.sparkSession.conf.set("spark.sql.sources.partitionOverwriteMode", "dynamic")
     target = f"{prod_path}/{table_name}"
-    (
-        df
-        .write
-        .mode("overwrite")
-        .partitionBy("year", "month", "day")
-        .format("parquet")
-        .save(target)
-    )
+    writer = df.write.mode("overwrite").format("parquet")
+    if partition_cols:
+        writer = writer.partitionBy(*partition_cols)
+    writer.save(target)
     return target
